@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { Node, Edge } from '@xyflow/react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { ConceptMapViewer } from '@/components/concept-map/ConceptMapViewer';
 import { MapIcon, DownloadIcon, RefreshIcon, ExpandIcon } from '@/components/icons/Icons';
@@ -98,19 +98,38 @@ export default function Home() {
 
       // Layout horizontal: expandir hacia la derecha
       const maxX = Math.max(...nodes.map(n => n.position.x));
-      const newLevelX = maxX + 250;
-      const VERTICAL_GAP = 60;
+      const newLevelX = maxX + 280;
+      const VERTICAL_GAP = 50; // Espacio entre nodos del mismo grupo
+      const GROUP_GAP = 30; // Espacio adicional entre grupos
 
       // Colores para las expansiones
       const expandColors = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
-      result.expansiones.forEach((exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }, expIndex: number) => {
-        const parentNode = nodes.find(n => (n.data as ConceptNodeData).label === exp.conceptoOriginal);
-        if (!parentNode) return;
+      // Primero, preparar datos de expansión con nodos padres válidos
+      const expansionData = result.expansiones
+        .map((exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }, expIndex: number) => {
+          const parentNode = nodes.find(n => (n.data as ConceptNodeData).label === exp.conceptoOriginal);
+          return parentNode ? { exp, parentNode, expIndex } : null;
+        })
+        .filter((item: { exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }; parentNode: Node; expIndex: number } | null): item is { exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }; parentNode: Node; expIndex: number } => item !== null)
+        // Ordenar por posición Y del nodo padre
+        .sort((a: { parentNode: Node }, b: { parentNode: Node }) => a.parentNode.position.y - b.parentNode.position.y);
 
+      // Calcular posiciones secuencialmente para evitar superposición
+      let currentY = expansionData.length > 0
+        ? Math.min(...expansionData.map((d: { parentNode: Node }) => d.parentNode.position.y)) - 50
+        : 0;
+
+      expansionData.forEach(({ exp, parentNode, expIndex }: { exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }; parentNode: Node; expIndex: number }) => {
         const color = expandColors[expIndex % expandColors.length];
         const subCount = exp.subDetalles.length;
-        const startY = parentNode.position.y - ((subCount - 1) * VERTICAL_GAP) / 2;
+
+        // Calcular el centro ideal basado en el nodo padre
+        const idealCenterY = parentNode.position.y;
+        const groupHeight = (subCount - 1) * VERTICAL_GAP;
+
+        // Ajustar para que no se superpongan con el grupo anterior
+        let startY = Math.max(currentY, idealCenterY - groupHeight / 2);
 
         exp.subDetalles.forEach((sub: { nombre: string; descripcion: string }, idx: number) => {
           const newId = `expanded-${parentNode.id}-${idx}-${Date.now()}-${expIndex}`;
@@ -135,6 +154,9 @@ export default function Home() {
             style: { stroke: color, strokeWidth: 1.5 },
           });
         });
+
+        // Actualizar currentY para el siguiente grupo
+        currentY = startY + groupHeight + GROUP_GAP;
       });
 
       setNodes(prev => [...prev, ...newNodes]);
@@ -168,6 +190,7 @@ export default function Home() {
 
   /**
    * Descarga el mapa conceptual como PNG (solo el mapa, sin controles)
+   * Usa html-to-image que captura correctamente los SVG de las líneas
    */
   const handleDownload = useCallback(async () => {
     const mapContainer = document.getElementById('concept-map-container');
@@ -176,6 +199,12 @@ export default function Home() {
     setIsDownloading(true);
 
     try {
+      // Buscar el viewport de React Flow que contiene nodos y edges
+      const viewport = mapContainer.querySelector('.react-flow__viewport') as HTMLElement;
+      if (!viewport) {
+        throw new Error('No se encontró el viewport del mapa');
+      }
+
       // Ocultar controles y minimapa antes de capturar
       const controls = mapContainer.querySelector('.react-flow__controls') as HTMLElement;
       const minimap = mapContainer.querySelector('.react-flow__minimap') as HTMLElement;
@@ -183,23 +212,35 @@ export default function Home() {
 
       if (controls) controls.style.display = 'none';
       if (minimap) minimap.style.display = 'none';
+      if (background) background.style.display = 'none';
 
-      // Capturar el mapa como imagen
-      const canvas = await html2canvas(mapContainer, {
+      // Capturar usando html-to-image que maneja SVG correctamente
+      const dataUrl = await toPng(mapContainer, {
         backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
+        pixelRatio: 2,
+        filter: (node) => {
+          // Excluir controles y minimapa del export
+          if (node instanceof Element) {
+            const className = node.className?.toString() || '';
+            if (className.includes('react-flow__controls') ||
+                className.includes('react-flow__minimap') ||
+                className.includes('react-flow__background')) {
+              return false;
+            }
+          }
+          return true;
+        },
       });
 
       // Restaurar controles y minimapa
       if (controls) controls.style.display = '';
       if (minimap) minimap.style.display = '';
+      if (background) background.style.display = '';
 
-      // Convertir a PNG y descargar
+      // Descargar
       const link = document.createElement('a');
       link.download = `mapa-conceptual-${currentConfig.tema.toLowerCase().replace(/\s+/g, '-')}.png`;
-      link.href = canvas.toDataURL('image/png');
+      link.href = dataUrl;
       link.click();
 
     } catch (error) {
