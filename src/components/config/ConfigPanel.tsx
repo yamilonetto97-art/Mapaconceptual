@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { NivelEducativo, ConceptMapConfig } from '@/types/concept-map';
 import { GRADOS_POR_NIVEL } from '@/types/concept-map';
-import { SparklesIcon, BookOpenIcon, GraduationCapIcon, SettingsIcon } from '@/components/icons/Icons';
+import { SparklesIcon, SettingsIcon } from '@/components/icons/Icons';
 
 interface ConfigPanelProps {
   onGenerate: (config: ConceptMapConfig) => void;
@@ -35,7 +35,7 @@ export function ConfigPanel({ onGenerate, isLoading }: ConfigPanelProps) {
   // Validar y enviar configuración
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!tema.trim() || !grado) {
       return;
     }
@@ -146,7 +146,7 @@ export function ConfigPanel({ onGenerate, isLoading }: ConfigPanelProps) {
         border: '1px solid rgba(99, 102, 241, 0.15)',
       }}>
         <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0 }}>
-          💡 Sé específico: "El ciclo del agua" es mejor que "agua".
+          💡 Sé específico: &quot;El ciclo del agua&quot; es mejor que &quot;agua&quot;.
         </p>
       </div>
     </div>

@@ -463,7 +463,8 @@ a:hover { color: var(--color-primary-dark); }
   gap: 8px;
   padding: 6px 14px;
   border-radius: 20px;
-  white-space: nowrap;
+  white-space: normal;         /* Permitir wrap de texto */
+  max-width: 320px;            /* Ancho máximo para forzar wrap */
   transition: transform 0.2s ease;
   cursor: grab;
   background: transparent;
@@ -488,6 +489,7 @@ a:hover { color: var(--color-primary-dark); }
   border: 3px solid #6366f1;
   padding: 16px 32px;
   border-radius: 30px;
+  max-width: 400px;
 }
 
 .concept-node--main::before {
@@ -498,7 +500,7 @@ a:hover { color: var(--color-primary-dark); }
 
 .concept-node--main .concept-node__label {
   font-weight: 700;
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   color: #1e293b;
 }
 
@@ -507,11 +509,12 @@ a:hover { color: var(--color-primary-dark); }
   background: rgba(255, 255, 255, 0.95);
   border: none;
   padding: 10px 18px;
+  max-width: 300px;
 }
 
 .concept-node--concept .concept-node__label {
   font-weight: 600;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   color: #1e293b;
 }
 
@@ -520,6 +523,7 @@ a:hover { color: var(--color-primary-dark); }
   background: transparent;
   border: none;
   padding: 8px 14px;
+  max-width: 280px;
 }
 
 .concept-node--subconcept::before {
@@ -529,7 +533,7 @@ a:hover { color: var(--color-primary-dark); }
 
 .concept-node--subconcept .concept-node__label {
   font-weight: 500;
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: #334155;
 }
 
@@ -538,6 +542,7 @@ a:hover { color: var(--color-primary-dark); }
   background: transparent;
   border: none;
   padding: 6px 12px;
+  max-width: 260px;
 }
 
 .concept-node--example::before {
@@ -547,7 +552,7 @@ a:hover { color: var(--color-primary-dark); }
 
 .concept-node--example .concept-node__label {
   font-weight: 400;
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: #475569;
 }
 

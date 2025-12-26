@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useMemo, useEffect, useState } from 'react';
+import { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   Controls,
   MiniMap,
   Background,
@@ -20,6 +22,25 @@ import { ConceptNode } from './ConceptNode';
 import { BrainIcon } from '@/components/icons/Icons';
 import type { ConceptNodeData } from '@/types/concept-map';
 
+// Componente interno que hace fitView cuando cambian los nodos
+function FitViewOnChange({ nodeCount }: { nodeCount: number }) {
+  const { fitView } = useReactFlow();
+  const prevCount = useRef(nodeCount);
+
+  useEffect(() => {
+    // Solo hacer fitView si aumentó el número de nodos (expansión)
+    if (nodeCount > prevCount.current) {
+      const timer = setTimeout(() => {
+        fitView({ padding: 0.15, duration: 500 });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    prevCount.current = nodeCount;
+  }, [nodeCount, fitView]);
+
+  return null;
+}
+
 interface ConceptMapViewerProps {
   initialNodes: Node[];
   initialEdges: Edge[];
@@ -34,20 +55,31 @@ interface ConceptMapViewerProps {
  * interactiva, con zoom, pan, minimap y controles.
  * Los nodos son MOVIBLES (draggable).
  */
-export function ConceptMapViewer({ 
-  initialNodes, 
-  initialEdges, 
+export function ConceptMapViewer({
+  initialNodes,
+  initialEdges,
   isLoading,
-  hasGenerated 
+  hasGenerated
 }: ConceptMapViewerProps) {
   // Estados internos para manejar drag & drop
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
+  const [nodes, setNodes] = useState<Node[]>(initialNodes);
+  const [edges, setEdges] = useState<Edge[]>(initialEdges);
 
   // Sincronizar con props cuando cambian (nueva generación)
+  // Usamos un efecto con un flag para evitar cascading renders
   useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
+    // Solo sincronizar si los datos realmente cambiaron
+    let needsUpdate = false;
+
+    if (JSON.stringify(nodes) !== JSON.stringify(initialNodes)) {
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      setNodes(initialNodes);
+      setEdges(initialEdges);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialNodes, initialEdges]);
 
   // Handlers para cambios en nodos y edges (permite drag & drop)
@@ -81,8 +113,8 @@ export function ConceptMapViewer({
           </div>
           <h3 className="empty-title">Tu mapa conceptual aparecerá aquí</h3>
           <p className="empty-description">
-            Ingresa un tema y las opciones de configuración en el panel izquierdo, 
-            luego haz clic en <strong>&quot;Generar Mapa Conceptual&quot;</strong> para 
+            Ingresa un tema y las opciones de configuración en el panel izquierdo,
+            luego haz clic en <strong>&quot;Generar Mapa Conceptual&quot;</strong> para
             visualizar las relaciones entre conceptos.
           </p>
         </div>
@@ -107,68 +139,71 @@ export function ConceptMapViewer({
 
   return (
     <div className="map-container" id="concept-map-container">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{
-          padding: 0.25,           // Más padding para que quepa todo
-          duration: 800,
-          includeHiddenNodes: false,
-        }}
-        defaultEdgeOptions={{
-          animated: false,          // Sin animación para mejor captura PNG
-          style: {
-            stroke: 'var(--color-primary)',
-            strokeWidth: 3,
-          },
-          type: 'smoothstep',
-        }}
-        proOptions={{ hideAttribution: true }}
-        minZoom={0.05}              // Zoom mínimo más bajo para mapas grandes
-        maxZoom={2}
-        nodesDraggable={true}
-        nodesConnectable={false}
-        elementsSelectable={true}
-        panOnDrag={true}
-        zoomOnScroll={true}
-      >
-        <Background 
-          variant={BackgroundVariant.Dots} 
-          gap={20} 
-          size={1}
-          color="var(--color-text-muted)"
-          style={{ opacity: 0.3 }}
-        />
-        <Controls 
-          style={{ 
-            bottom: 20, 
-            left: 20,
-          }} 
-        />
-        <MiniMap 
-          style={{ 
-            bottom: 20, 
-            right: 20,
-            background: 'var(--color-bg-tertiary)',
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{
+            padding: 0.15,           // Padding ajustado para vista más amplia
+            duration: 500,
+            includeHiddenNodes: false,
           }}
-          nodeColor={(node) => {
-            const data = node.data as ConceptNodeData;
-            switch (data?.nodeType) {
-              case 'main': return 'var(--color-primary)';
-              case 'concept': return 'var(--color-secondary)';
-              case 'subconcept': return 'var(--color-text-muted)';
-              case 'example': return 'var(--color-success)';
-              default: return 'var(--color-text-muted)';
-            }
+          defaultEdgeOptions={{
+            animated: false,          // Sin animación para mejor captura PNG
+            style: {
+              stroke: 'var(--color-primary)',
+              strokeWidth: 2,
+            },
+            type: 'smoothstep',
           }}
-          maskColor="rgba(0, 0, 0, 0.7)"
-        />
-      </ReactFlow>
+          proOptions={{ hideAttribution: true }}
+          minZoom={0.02}              // Zoom mínimo más bajo para mapas grandes
+          maxZoom={2}
+          nodesDraggable={true}
+          nodesConnectable={false}
+          elementsSelectable={true}
+          panOnDrag={true}
+          zoomOnScroll={true}
+        >
+          <FitViewOnChange nodeCount={nodes.length} />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={20}
+            size={1}
+            color="var(--color-text-muted)"
+            style={{ opacity: 0.3 }}
+          />
+          <Controls
+            style={{
+              bottom: 20,
+              left: 20,
+            }}
+          />
+          <MiniMap
+            style={{
+              bottom: 20,
+              right: 20,
+              background: 'var(--color-bg-tertiary)',
+            }}
+            nodeColor={(node) => {
+              const data = node.data as ConceptNodeData;
+              switch (data?.nodeType) {
+                case 'main': return 'var(--color-primary)';
+                case 'concept': return 'var(--color-secondary)';
+                case 'subconcept': return 'var(--color-text-muted)';
+                case 'example': return 'var(--color-success)';
+                default: return 'var(--color-text-muted)';
+              }
+            }}
+            maskColor="rgba(0, 0, 0, 0.7)"
+          />
+        </ReactFlow>
+      </ReactFlowProvider>
     </div>
   );
 }

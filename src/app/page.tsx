@@ -6,8 +6,14 @@ import { toPng } from 'html-to-image';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { ConceptMapViewer } from '@/components/concept-map/ConceptMapViewer';
 import { MapIcon, DownloadIcon, RefreshIcon, ExpandIcon } from '@/components/icons/Icons';
-import { generateConceptMap } from '@/services/concept-map-generator';
-import type { ConceptMapConfig, ConceptNodeData } from '@/types/concept-map';
+import {
+  generateConceptMap,
+  layoutFromTree,
+  addExpansionsToTree,
+  type ConceptTree,
+  type TreeNode
+} from '@/services/concept-map-generator';
+import type { ConceptMapConfig } from '@/types/concept-map';
 
 // Límite máximo de expansiones
 const MAX_EXPANSIONS = 3;
@@ -21,12 +27,15 @@ export default function Home() {
   const [hasGenerated, setHasGenerated] = useState(false);
   const [currentConfig, setCurrentConfig] = useState<ConceptMapConfig | null>(null);
   const [expansionCount, setExpansionCount] = useState(0);
+  // NUEVO: Estado para el árbol conceptual
+  const [conceptTree, setConceptTree] = useState<ConceptTree | null>(null);
 
   const handleGenerate = useCallback(async (config: ConceptMapConfig) => {
     setIsLoading(true);
     setError(null);
     setCurrentConfig(config);
     setExpansionCount(0);
+    setConceptTree(null);
 
     try {
       const response = await generateConceptMap(config);
@@ -35,6 +44,10 @@ export default function Home() {
         setNodes(response.data.nodes);
         setEdges(response.data.edges);
         setHasGenerated(true);
+        // Guardar el árbol conceptual
+        if (response.tree) {
+          setConceptTree(response.tree);
+        }
       } else {
         setError(response.error || 'Error desconocido al generar el mapa');
       }
@@ -48,32 +61,37 @@ export default function Home() {
 
   /**
    * Ampliar búsqueda - Expande los nodos del nivel más bajo
+   * RECALCULA TODO EL LAYOUT desde el árbol actualizado
    */
   const handleExpand = useCallback(async () => {
-    if (!currentConfig || expansionCount >= MAX_EXPANSIONS) return;
+    if (!currentConfig || !conceptTree || expansionCount >= MAX_EXPANSIONS) return;
 
     setIsExpanding(true);
     setError(null);
 
     try {
-      // Encontrar nodos del nivel más profundo que no sean ejemplos
-      const expandableNodes = nodes.filter((node) => {
-        const data = node.data as ConceptNodeData;
-        // Solo expandir subconceptos o conceptos que no tengan hijos
-        const hasChildren = edges.some(e => e.source === node.id);
-        return (data.nodeType === 'subconcept' || data.nodeType === 'concept') && !hasChildren;
-      });
+      // Función para encontrar nodos hoja (sin hijos) en el árbol
+      const findLeafNodes = (node: TreeNode): TreeNode[] => {
+        if (node.hijos.length === 0 && node.tipo !== 'main') {
+          return [node];
+        }
+        return node.hijos.flatMap(child => findLeafNodes(child));
+      };
 
-      if (expandableNodes.length === 0) {
+      // Encontrar nodos expandibles (hojas que no sean del tipo 'example' o 'expanded')
+      const allLeaves = findLeafNodes(conceptTree.raiz);
+      const expandableLeaves = allLeaves.filter(
+        leaf => leaf.tipo === 'concept' || leaf.tipo === 'subconcept'
+      );
+
+      if (expandableLeaves.length === 0) {
         setError('No hay más conceptos para expandir');
         setIsExpanding(false);
         return;
       }
 
       // Tomar máximo 4 nodos para expandir
-      const nodosAExpandir = expandableNodes
-        .slice(0, 4)
-        .map(n => (n.data as ConceptNodeData).label);
+      const nodosAExpandir = expandableLeaves.slice(0, 4).map(n => n.nombre);
 
       const response = await fetch('/api/expand', {
         method: 'POST',
@@ -87,80 +105,18 @@ export default function Home() {
       });
 
       const result = await response.json();
+      if (!result.success) throw new Error(result.error);
 
-      if (!result.success) {
-        throw new Error(result.error);
-      }
+      // Actualizar el árbol con las expansiones
+      const updatedTree = addExpansionsToTree(conceptTree, result.expansiones);
 
-      // Agregar nuevos nodos y edges
-      const newNodes: Node[] = [];
-      const newEdges: Edge[] = [];
+      // RECALCULAR TODO EL LAYOUT desde el árbol actualizado
+      const { nodes: newNodes, edges: newEdges } = layoutFromTree(updatedTree);
 
-      // Layout horizontal: expandir hacia la derecha
-      const maxX = Math.max(...nodes.map(n => n.position.x));
-      const newLevelX = maxX + 280;
-      const VERTICAL_GAP = 50; // Espacio entre nodos del mismo grupo
-      const GROUP_GAP = 30; // Espacio adicional entre grupos
-
-      // Colores para las expansiones
-      const expandColors = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
-
-      // Primero, preparar datos de expansión con nodos padres válidos
-      const expansionData = result.expansiones
-        .map((exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }, expIndex: number) => {
-          const parentNode = nodes.find(n => (n.data as ConceptNodeData).label === exp.conceptoOriginal);
-          return parentNode ? { exp, parentNode, expIndex } : null;
-        })
-        .filter((item: { exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }; parentNode: Node; expIndex: number } | null): item is { exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }; parentNode: Node; expIndex: number } => item !== null)
-        // Ordenar por posición Y del nodo padre
-        .sort((a: { parentNode: Node }, b: { parentNode: Node }) => a.parentNode.position.y - b.parentNode.position.y);
-
-      // Calcular posiciones secuencialmente para evitar superposición
-      let currentY = expansionData.length > 0
-        ? Math.min(...expansionData.map((d: { parentNode: Node }) => d.parentNode.position.y)) - 50
-        : 0;
-
-      expansionData.forEach(({ exp, parentNode, expIndex }: { exp: { conceptoOriginal: string; subDetalles: Array<{ nombre: string; descripcion: string }> }; parentNode: Node; expIndex: number }) => {
-        const color = expandColors[expIndex % expandColors.length];
-        const subCount = exp.subDetalles.length;
-
-        // Calcular el centro ideal basado en el nodo padre
-        const idealCenterY = parentNode.position.y;
-        const groupHeight = (subCount - 1) * VERTICAL_GAP;
-
-        // Ajustar para que no se superpongan con el grupo anterior
-        let startY = Math.max(currentY, idealCenterY - groupHeight / 2);
-
-        exp.subDetalles.forEach((sub: { nombre: string; descripcion: string }, idx: number) => {
-          const newId = `expanded-${parentNode.id}-${idx}-${Date.now()}-${expIndex}`;
-          const yPos = startY + idx * VERTICAL_GAP;
-
-          newNodes.push({
-            id: newId,
-            type: 'concept',
-            position: { x: newLevelX, y: yPos },
-            data: {
-              label: sub.nombre,
-              nodeType: 'example' as const,
-              description: sub.descripcion
-            },
-          });
-
-          newEdges.push({
-            id: `edge-${parentNode.id}-${newId}`,
-            source: parentNode.id,
-            target: newId,
-            type: 'smoothstep',
-            style: { stroke: color, strokeWidth: 1.5 },
-          });
-        });
-
-        // Actualizar currentY para el siguiente grupo
-        currentY = startY + groupHeight + GROUP_GAP;
-      });
-
-      setNodes(prev => [...prev, ...newNodes]);
-      setEdges(prev => [...prev, ...newEdges]);
+      // Actualizar estados
+      setConceptTree(updatedTree);
+      setNodes(newNodes);
+      setEdges(newEdges);
       setExpansionCount(prev => prev + 1);
 
     } catch (err) {
@@ -169,7 +125,7 @@ export default function Home() {
     } finally {
       setIsExpanding(false);
     }
-  }, [currentConfig, nodes, edges, expansionCount]);
+  }, [currentConfig, conceptTree, expansionCount]);
 
   const handleRegenerate = useCallback(() => {
     if (currentConfig) {
@@ -184,13 +140,14 @@ export default function Home() {
     setCurrentConfig(null);
     setError(null);
     setExpansionCount(0);
+    setConceptTree(null);
   }, []);
 
   const [isDownloading, setIsDownloading] = useState(false);
 
   /**
-   * Descarga el mapa conceptual como PNG (solo el mapa, sin controles)
-   * Usa html-to-image que captura correctamente los SVG de las líneas
+   * Descarga el mapa conceptual como PNG en alta calidad
+   * Captura el contenido completo del mapa, no solo lo visible
    */
   const handleDownload = useCallback(async () => {
     const mapContainer = document.getElementById('concept-map-container');
@@ -199,12 +156,6 @@ export default function Home() {
     setIsDownloading(true);
 
     try {
-      // Buscar el viewport de React Flow que contiene nodos y edges
-      const viewport = mapContainer.querySelector('.react-flow__viewport') as HTMLElement;
-      if (!viewport) {
-        throw new Error('No se encontró el viewport del mapa');
-      }
-
       // Ocultar controles y minimapa antes de capturar
       const controls = mapContainer.querySelector('.react-flow__controls') as HTMLElement;
       const minimap = mapContainer.querySelector('.react-flow__minimap') as HTMLElement;
@@ -214,17 +165,42 @@ export default function Home() {
       if (minimap) minimap.style.display = 'none';
       if (background) background.style.display = 'none';
 
-      // Capturar usando html-to-image que maneja SVG correctamente
+      // Calcular el bounding box de todos los nodos para determinar el tamaño real
+      const nodeElements = mapContainer.querySelectorAll('.react-flow__node');
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+      nodeElements.forEach((node) => {
+        const rect = node.getBoundingClientRect();
+        const containerRect = mapContainer.getBoundingClientRect();
+        const x = rect.left - containerRect.left;
+        const y = rect.top - containerRect.top;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + rect.width);
+        maxY = Math.max(maxY, y + rect.height);
+      });
+
+      // Calcular dimensiones con padding
+      const padding = 60;
+      const width = Math.max(maxX - minX + padding * 2, mapContainer.offsetWidth);
+      const height = Math.max(maxY - minY + padding * 2, mapContainer.offsetHeight);
+
+      // Capturar con alta resolución
       const dataUrl = await toPng(mapContainer, {
         backgroundColor: '#ffffff',
-        pixelRatio: 2,
+        pixelRatio: 4,  // Alta resolución (4x)
+        width: width,
+        height: height,
+        style: {
+          transform: 'scale(1)',
+          transformOrigin: 'top left',
+        },
         filter: (node) => {
-          // Excluir controles y minimapa del export
           if (node instanceof Element) {
             const className = node.className?.toString() || '';
             if (className.includes('react-flow__controls') ||
-                className.includes('react-flow__minimap') ||
-                className.includes('react-flow__background')) {
+              className.includes('react-flow__minimap') ||
+              className.includes('react-flow__background')) {
               return false;
             }
           }
@@ -267,17 +243,6 @@ export default function Home() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-          <span style={{
-            fontSize: '0.875rem',
-            color: 'var(--color-text-muted)',
-            background: 'var(--color-bg-tertiary)',
-            padding: '0.5rem 1rem',
-            borderRadius: 'var(--radius-full)',
-          }}>
-            🎓 Potenciado con IA
-          </span>
-        </div>
       </header>
 
       {/* Contenido principal */}
