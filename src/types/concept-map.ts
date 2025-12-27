@@ -38,7 +38,7 @@ export interface ConceptMapConfig {
 /**
  * Tipos de nodos en el mapa conceptual
  */
-export type ConceptNodeType = 'main' | 'concept' | 'subconcept' | 'example';
+export type ConceptNodeType = 'main' | 'concept' | 'subconcept' | 'example' | 'expanded';
 
 /**
  * Datos personalizados para cada nodo del mapa
