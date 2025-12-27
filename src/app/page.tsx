@@ -16,7 +16,7 @@ import {
 import type { ConceptMapConfig } from '@/types/concept-map';
 
 // Límite máximo de expansiones
-const MAX_EXPANSIONS = 3;
+const MAX_EXPANSIONS = 2;
 
 export default function Home() {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -185,12 +185,12 @@ export default function Home() {
       const width = Math.max(maxX - minX + padding * 2, mapContainer.offsetWidth);
       const height = Math.max(maxY - minY + padding * 2, mapContainer.offsetHeight);
 
-      // Capturar con alta resolución
+      // Capturar con muy alta resolución para nitidez al hacer zoom
       const dataUrl = await toPng(mapContainer, {
         backgroundColor: '#ffffff',
-        pixelRatio: 4,  // Alta resolución (4x)
-        width: width,
-        height: height,
+        pixelRatio: 6,  // Muy alta resolución (6x)
+        quality: 1.0,   // Máxima calidad
+        cacheBust: true,
         style: {
           transform: 'scale(1)',
           transformOrigin: 'top left',

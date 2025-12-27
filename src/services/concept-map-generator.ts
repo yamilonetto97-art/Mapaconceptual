@@ -18,6 +18,7 @@ export interface TreeNode {
   id: string;
   nombre: string;
   descripcion?: string;
+  relacion?: string;  // Texto de enlace (ej: "tiene", "produce", "incluye")
   tipo: 'main' | 'concept' | 'subconcept' | 'example' | 'expanded';
   hijos: TreeNode[];
   color?: string;
@@ -44,10 +45,10 @@ interface ApiConcepto {
 // CONSTANTES DE LAYOUT
 // ============================================================================
 
-const LEVEL_X_GAP = 380;      // Aumentado para textos largos
-const NODE_HEIGHT = 60;        // Aumentado para texto multilínea
-const NODE_VERTICAL_GAP = 30;  // Aumentado
-const BRANCH_GAP_MULTIPLIER = 3;
+const LEVEL_X_GAP = 320;       // Espacio horizontal entre niveles
+const NODE_HEIGHT = 140;       // Altura para cajas con descripción completa
+const NODE_VERTICAL_GAP = 45;  // Espacio vertical entre nodos (aumentado)
+const BRANCH_GAP_MULTIPLIER = 2.5; // Separación extra entre ramas principales
 const START_X = 50;
 
 const BRANCH_COLORS = [
@@ -118,6 +119,7 @@ function buildTreeFromApi(
       id: `concept-${conceptIndex}`,
       nombre: concepto.nombre,
       descripcion: concepto.descripcion,
+      relacion: concepto.relacion || 'tiene',  // Guardar relación para el edge
       tipo: 'concept',
       hijos: [],
       color
@@ -130,6 +132,7 @@ function buildTreeFromApi(
           id: `sub-${conceptIndex}-${subIndex}`,
           nombre: sub.nombre,
           descripcion: sub.descripcion,
+          relacion: 'incluye',  // Relación por defecto para subconceptos
           tipo: 'subconcept',
           hijos: [],
           color
@@ -141,6 +144,7 @@ function buildTreeFromApi(
             subNode.hijos.push({
               id: `ex-${conceptIndex}-${subIndex}-${ejIndex}`,
               nombre: ejemplo,
+              relacion: 'ejemplo',  // Relación para ejemplos
               tipo: 'example',
               hijos: [],
               color
@@ -245,15 +249,15 @@ export function layoutFromTree(tree: ConceptTree): { nodes: Node<ConceptNodeData
         }
       });
 
-      // Crear edge
+      // Crear edge simple (sin label - la descripción va en el nodo)
       edges.push({
         id: `edge-${parentId}-${child.id}`,
         source: parentId,
         target: child.id,
         type: 'smoothstep',
         style: {
-          stroke: child.color || '#6366f1',
-          strokeWidth: level === 1 ? 3 : level === 2 ? 2.5 : 2
+          stroke: '#94a3b8',
+          strokeWidth: 2
         }
       });
 
@@ -281,13 +285,13 @@ export function layoutFromTree(tree: ConceptTree): { nodes: Node<ConceptNodeData
       }
     });
 
-    // Edge desde raíz
+    // Edge desde raíz simple
     edges.push({
       id: `edge-main-${conceptNode.id}`,
       source: tree.raiz.id,
       target: conceptNode.id,
       type: 'smoothstep',
-      style: { stroke: conceptNode.color || '#6366f1', strokeWidth: 3 }
+      style: { stroke: '#94a3b8', strokeWidth: 2.5 }
     });
 
     // Crear subárbol
@@ -336,6 +340,7 @@ export function addExpansionsToTree(
           id: `expanded-${parentNode.id}-${expIdx}-${idx}-${Date.now()}`,
           nombre: detalle.nombre,
           descripcion: detalle.descripcion,
+          relacion: 'incluye',  // Relación para nodos expandidos
           tipo: 'expanded',
           hijos: [],
           color: parentNode.color
